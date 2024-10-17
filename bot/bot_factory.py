@@ -39,19 +39,25 @@ def create_bot(bot_type):
     elif bot_type == const.LINKAI:
         from bot.linkai.link_ai_bot import LinkAIBot
         return LinkAIBot()
-
+    
+    elif bot_type == const.DIFYAI:
+        from bot.dify.dify_ai_bot import DifyAIBot
+        return DifyAIBot()
+    
     elif bot_type == const.CLAUDEAI:
         from bot.claude.claude_ai_bot import ClaudeAIBot
         return ClaudeAIBot()
     elif bot_type == const.CLAUDEAPI:
         from bot.claudeapi.claude_api_bot import ClaudeAPIBot
         return ClaudeAPIBot()
+    
     elif bot_type == const.QWEN:
         from bot.ali.ali_qwen_bot import AliQwenBot
         return AliQwenBot()
     elif bot_type == const.QWEN_DASHSCOPE:
         from bot.dashscope.dashscope_bot import DashscopeBot
         return DashscopeBot()
+    
     elif bot_type == const.GEMINI:
         from bot.gemini.google_gemini_bot import GoogleGeminiBot
         return GoogleGeminiBot()
