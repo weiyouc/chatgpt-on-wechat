@@ -1,6 +1,7 @@
 from common.expired_dict import ExpiredDict
 from common.log import logger
 from config import conf
+import os
 
 
 class Session(object):
@@ -8,7 +9,14 @@ class Session(object):
         self.session_id = session_id
         self.messages = []
         if system_prompt is None:
-            self.system_prompt = conf().get("character_desc", "")
+            # Load system prompt from file
+            prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompt.txt")
+            try:
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    self.system_prompt = f.read().strip()
+            except Exception as e:
+                logger.warning(f"Failed to load prompt.txt, falling back to config: {e}")
+                self.system_prompt = conf().get("character_desc", "")
         else:
             self.system_prompt = system_prompt
 
@@ -46,6 +54,15 @@ class SessionManager(object):
         self.sessioncls = sessioncls
         self.session_args = session_args
 
+        # Load system prompt from file
+        prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompt.txt")
+        try:
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                self.system_prompt = f.read().strip()
+        except Exception as e:
+            logger.warning(f"Failed to load prompt.txt, falling back to config: {e}")
+            self.system_prompt = conf().get("character_desc", "")
+
     def build_session(self, session_id, system_prompt=None):
         """
         如果session_id不在sessions中，创建一个新的session并添加到sessions中
@@ -65,7 +82,7 @@ class SessionManager(object):
         session = self.build_session(session_id)
         session.add_query(query)
         try:
-            max_tokens = conf().get("conversation_max_tokens", 1000)
+            max_tokens = conf().get("conversation_max_tokens", 12800)
             total_tokens = session.discard_exceeding(max_tokens, None)
             logger.debug("prompt tokens used={}".format(total_tokens))
         except Exception as e:
