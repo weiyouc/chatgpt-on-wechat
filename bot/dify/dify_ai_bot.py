@@ -64,8 +64,8 @@ class DifyAIBot(Bot):
                 app_code = None
             else:
                 plugin_app_code = self._find_group_mapping_code(context)
-                app_code = context.kwargs.get("app_code") or plugin_app_code or conf().get("DifyAI_app_code")
-            DifyAI_api_key = conf().get("DifyAI_api_key")
+                app_code = context.kwargs.get("app_code") or plugin_app_code or conf().get("difyai_app_code")
+            DifyAI_api_key = conf().get("difyai_api_key")
 
             session_id = context["session_id"]
             session_message = self.sessions.session_msg_query(query, session_id)
@@ -85,13 +85,18 @@ class DifyAIBot(Bot):
                     session_message.pop(0)
             body = {
                 "app_code": app_code,
+                "inputs": {
+                    "query": query
+                },
+                "query": query,
                 "messages": session_message,
-                "model": model,     # 对话模型的名称, 支持 gpt-3.5-turbo, gpt-3.5-turbo-16k, gpt-4, wenxin, xunfei
+                "model": model,
                 "temperature": conf().get("temperature"),
                 "top_p": conf().get("top_p", 1),
-                "frequency_penalty": conf().get("frequency_penalty", 0.0),  # [-2,2]之间，该值越大则更倾向于产生不同的内容
-                "presence_penalty": conf().get("presence_penalty", 0.0),  # [-2,2]之间，该值越大则更倾向于产生不同的内容
+                "frequency_penalty": conf().get("frequency_penalty", 0.0),
+                "presence_penalty": conf().get("presence_penalty", 0.0),
                 "session_id": session_id,
+                "user": session_id,
                 "sender_id": session_id,
                 "channel_type": conf().get("channel_type", "wx")
             }
@@ -122,14 +127,75 @@ class DifyAIBot(Bot):
             headers = {"Authorization": "Bearer " + DifyAI_api_key}
 
             # do http request
-            base_url = conf().get("DifyAI_api_base", "http://localhost")
-            res = requests.post(url=base_url + "/v1/chat-messages", json=body, headers=headers,
-                                timeout=conf().get("request_timeout", 180))
+            base_url = conf().get("difyai_api_base", "http://127.0.0.1")
+            full_url = f"{base_url}/v1/chat-messages"
+            logger.debug(f"[DifyAI] Making request to URL: {full_url}")
+            
+            # Add debug logging for request
+            logger.debug(f"[DifyAI] Making request with body: {body}")
+            
+            res = requests.post(
+                url=full_url,
+                json=body,
+                headers=headers,
+                timeout=conf().get("request_timeout", 180)
+            )
+            
+            # Add more detailed error logging
+            logger.debug(f"[DifyAI] Response status code: {res.status_code}")
+            logger.debug(f"[DifyAI] Response headers: {res.headers}")
+            logger.debug(f"[DifyAI] Raw response text: {res.text}")
+
+            # Check for empty response before parsing JSON
+            if not res.text:
+                logger.error("[DifyAI] Empty response received from API")
+                return Reply(ReplyType.ERROR, "API返回为空，请稍后再试")
+
+            # Validate response is JSON before parsing
+            try:
+                response = res.json()
+            except requests.exceptions.JSONDecodeError as e:
+                logger.error(f"[DifyAI] Invalid JSON response: {e}")
+                logger.debug(f"[DifyAI] Raw response: {res.text}")
+                return Reply(ReplyType.ERROR, "API返回格式错误，请稍后再试")
+
             if res.status_code == 200:
                 # execute success
-                response = res.json()
-                reply_content = response["choices"][0]["message"]["content"]
-                total_tokens = response["usage"]["total_tokens"]
+                # Add debug logging for response structure
+                logger.debug(f"[DifyAI] Response structure: {response}")
+                
+                reply_content = None
+                total_tokens = 0
+                
+                # Handle Dify API format
+                if "answer" in response:
+                    # Dify API format
+                    reply_content = response["answer"]
+                    total_tokens = response.get("usage", {}).get("total_tokens", 0)
+                    
+                    # Handle image URLs if present in Dify format
+                    img_urls = response.get("image_urls", [])
+                    if img_urls:
+                        thread = threading.Thread(target=self._send_image, args=(context.get("channel"), context, img_urls))
+                        thread.start()
+                        
+                # Handle OpenAI format
+                elif "choices" in response and len(response["choices"]) > 0:
+                    reply_content = response["choices"][0]["message"]["content"]
+                    total_tokens = response.get("usage", {}).get("total_tokens", 0)
+                    
+                    # Handle image URLs in OpenAI format
+                    choice = response["choices"][0]
+                    if choice.get("img_urls"):
+                        thread = threading.Thread(target=self._send_image, args=(context.get("channel"), context, choice["img_urls"]))
+                        thread.start()
+                        if choice.get("text_content"):
+                            reply_content = choice["text_content"]
+                
+                if not reply_content:
+                    logger.error(f"[DifyAI] Unexpected response structure: {response}")
+                    return Reply(ReplyType.TEXT, "抱歉，服务器返回格式异常，请稍后再试")
+
                 res_code = response.get('code')
                 logger.info(f"[DifyAI] reply={reply_content}, total_tokens={total_tokens}, res_code={res_code}")
                 if res_code == 429:
@@ -143,20 +209,22 @@ class DifyAIBot(Bot):
                     knowledge_suffix = self._fetch_knowledge_search_suffix(response)
                     if knowledge_suffix:
                         reply_content += knowledge_suffix
-                # image process
-                if response["choices"][0].get("img_urls"):
-                    thread = threading.Thread(target=self._send_image, args=(context.get("channel"), context, response["choices"][0].get("img_urls")))
-                    thread.start()
-                    if response["choices"][0].get("text_content"):
-                        reply_content = response["choices"][0].get("text_content")
                 reply_content = self._process_url(reply_content)
                 return Reply(ReplyType.TEXT, reply_content)
 
             else:
+                # Add error checking before accessing error object
                 response = res.json()
                 error = response.get("error")
+                error_msg = "Unknown error"
+                error_type = "Unknown"
+                
+                if error:
+                    error_msg = error.get("message", "Unknown error")
+                    error_type = error.get("type", "Unknown")
+                
                 logger.error(f"[DifyAI] chat failed, status_code={res.status_code}, "
-                             f"msg={error.get('message')}, type={error.get('type')}")
+                             f"msg={error_msg}, type={error_type}")
 
                 if res.status_code >= 500:
                     # server error, need retry

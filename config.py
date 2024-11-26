@@ -182,7 +182,7 @@ available_setting = {
     "use_difyai": False,
     "difyai_api_key": "",
     "difyai_app_code": "",
-    "difyai_api_base": "http://localhost",  # linkAI服务地址
+    "difyai_api_base": "http://localhost",  # difyAI服务地址
     
     "Minimax_api_key": "",
     "Minimax_group_id": "",
