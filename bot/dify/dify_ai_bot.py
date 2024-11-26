@@ -1,5 +1,5 @@
 # access DifyAI knowledge base platform
-# docs: https://link-ai.tech/platform/link-app/wechat
+# docs: https://docs.dify.ai/zh-hans/guides
 
 import re
 import time
